@@ -1,0 +1,274 @@
+:root {
+  /* Brand Palette */
+  --bg-navy: #0A0E27;
+  --accent-cyan: #00F5FF;
+  --text-white: #F0F4FF;
+  --highlight-gold: #FFD700;
+
+  /* Typography */
+  --font-heading: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--bg-navy);
+  color: var(--text-white);
+  line-height: 1.6;
+  overflow-x: hidden;
+  /* Add custom cursor fallback */
+  cursor: none;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  cursor: none;
+  /* Let custom cursor handle hovering */
+}
+
+button {
+  cursor: none;
+  font-family: var(--font-heading);
+}
+
+/* --- Layout --- */
+
+section {
+  padding: 100px 20px;
+  position: relative;
+  z-index: 1;
+}
+
+.max-w-7xl {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+/* --- Glassmorphism --- */
+
+.glass-card {
+  background: rgba(10, 14, 39, 0.4);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 245, 255, 0.1);
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover {
+  border-color: rgba(0, 245, 255, 0.4);
+  box-shadow: 0 8px 40px rgba(0, 245, 255, 0.15);
+  transform: translateY(-5px);
+}
+
+/* --- Custom Cursor --- */
+
+#custom-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  background-color: var(--accent-cyan);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  transition: width 0.2s, height 0.2s, background-color 0.2s;
+  box-shadow: 0 0 15px var(--accent-cyan);
+}
+
+#custom-cursor.hovering {
+  width: 24px;
+  height: 24px;
+  background-color: rgba(0, 245, 255, 0.3);
+  border: 1px solid var(--accent-cyan);
+  box-shadow: 0 0 25px var(--accent-cyan);
+}
+
+/* --- Animations --- */
+
+.fade-in-up {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+}
+
+.fade-in-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@keyframes pulseIris {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.1;
+    box-shadow: 0 0 0 0 rgba(0, 245, 255, 0.4);
+  }
+
+  50% {
+    transform: scale(1.1);
+    opacity: 0.3;
+    box-shadow: 0 0 0 40px rgba(0, 245, 255, 0);
+  }
+
+  100% {
+    transform: scale(0.9);
+    opacity: 0.1;
+    box-shadow: 0 0 0 0 rgba(0, 245, 255, 0);
+  }
+}
+
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes dashFlow {
+  from {
+    stroke-dashoffset: 100;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* --- Buttons --- */
+
+.btn-cyan {
+  border: 2px solid var(--accent-cyan);
+  color: var(--accent-cyan);
+  background: transparent;
+  padding: 16px 32px;
+  border-radius: 30px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  transition: all 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-cyan:hover {
+  background: var(--accent-cyan);
+  color: var(--bg-navy);
+  box-shadow: 0 0 20px rgba(0, 245, 255, 0.6);
+}
+
+.btn-gold {
+  background: var(--highlight-gold);
+  color: var(--bg-navy);
+  border: none;
+  padding: 16px 32px;
+  border-radius: 30px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  transition: all 0.3s;
+  box-shadow: 0 0 15px rgba(255, 215, 0, 0.4);
+}
+
+.btn-gold:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
+}
+
+/* --- Utilities --- */
+
+.text-cyan {
+  color: var(--accent-cyan);
+}
+
+.text-gold {
+  color: var(--highlight-gold);
+}
+
+/* --- Responsive Utilities --- */
+
+@media (max-width: 768px) {
+  .hidden-mobile {
+    display: none !important;
+  }
+
+  section {
+    padding: 60px 15px;
+  }
+
+  .glass-card {
+    padding: 24px;
+  }
+
+  /* Disable custom cursor on mobile touching */
+  #custom-cursor {
+    display: none;
+  }
+
+  body,
+  button,
+  a {
+    cursor: auto;
+  }
+}
+
+/* --- Misc Utilities for App.jsx missing pieces --- */
+
+.section-title {
+  margin-top: 0;
+  line-height: 1.2;
+}
+
+@keyframes flashEmergency {
+  0% {
+    background-color: rgba(255, 0, 0, 0.2);
+  }
+
+  100% {
+    background-color: rgba(255, 0, 0, 0.8);
+  }
+}
+
+@keyframes fadeInOut {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+
+  20% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+
+  80% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+}

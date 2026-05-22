@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!--
+  BlinkSpeak — Caretaker Monitoring Dashboard
+  ============================================
+  SETUP:
+  1. Replace all REPLACE_WITH_YOUR_* in firebaseConfig object
+  2. Enable Anonymous Auth in Firebase Console
+  3. Set Realtime Database rules to allow authenticated reads/writes
+  4. Drag index.html to app.netlify.com/drop
+  5. Configure Raspberry Pi with serviceAccountKey.json
+-->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlinkSpeak — Caretaker Monitor | Room 204</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;700&family=Syne:wght@700;800;900&display=swap" rel="stylesheet">
+    
+    <style id="app-styles">
+:root {
+  --bg: #04080F; --surface: #080F1A; --surface2: #0D1826; --surface3: #111F30;
+  --border: rgba(0, 200, 255, 0.10); --glow: rgba(0, 200, 255, 0.25);
+  --accent: #00C8FF; --accent2: #00FFD1; --warn: #FFA500;
+  --danger: #FF2D2D; --danger-dim: rgba(255, 45, 45, 0.15);
+  --ok: #00E676; --text: #E0F0FF; --muted: #3D607A;
+  --mono: 'JetBrains Mono', monospace; --font: 'DM Sans', sans-serif; --display: 'Syne', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; font-size: 16px; transition: background 0.3s, color 0.3s; }
+body.light-mode {
+  --bg: #F0F4F8; --surface: #FFFFFF; --surface2: #E1E8F0; --surface3: #D0D9E2;
+  --border: rgba(0, 100, 150, 0.15); --glow: rgba(0, 150, 255, 0.15);
+  --text: #05101A; --muted: #647B91;
+}
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--surface2); }
+::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent2); }
+
+#bg-canvas { position: fixed; top: 0; left: 0; pointer-events: none; z-index: -1; width: 100vw; height: 100vh; opacity: 0.8; }
+#app-root { position: relative; z-index: 1; }
+.vignette-red { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 999;
+  background: radial-gradient(circle, transparent 50%, rgba(255,0,0,0.12) 100%); display: none; }
+h1,h2,h3 { font-family: var(--display); letter-spacing: -0.02em; }
+.mono { font-family: var(--mono); }
+button { font-family: var(--font); cursor: pointer; border:none; transition:all 0.2s; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; position: relative; overflow: hidden; }
+.card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--glow), transparent); opacity: 0; transition: opacity 0.3s; }
+.card:hover::before { opacity: 1; }
+.card.glow-emergency { animation: flashRed 0.4s 3 forwards; border-color: var(--danger); }
+.stagger-init { opacity: 0; animation: slideUpFade 0.6s forwards ease-out; }
+
+/* Header */
+header { position: sticky; top: 0; z-index: 100; background: rgba(4,8,15,0.92); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 0.8rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+.hdr-l { display: flex; align-items: center; gap: 1rem; }
+.logo-eye { font-size: 2rem; display: inline-block; animation: eyeBlink 4s infinite; text-shadow: 0 0 10px var(--accent); }
+.hdr-title h1 { font-family: var(--display); font-weight: 800; font-size: 1.4rem; letter-spacing: 0.5px; }
+.hdr-title h1 span { color: var(--accent); }
+.hdr-title p { color: var(--muted); font-size: 0.72rem; }
+.hdr-m { text-align: center; }
+.hdr-m .clock { font-family: var(--mono); font-size: 1.1rem; color: var(--accent); font-weight: 700; }
+.hdr-m .date { color: var(--muted); font-size: 0.75rem; }
+.hdr-r { display: flex; align-items: center; gap: 12px; }
+.cnt-badge { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; background: var(--surface2); font-size: 0.85rem; font-weight: 500; }
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot.on { background: var(--ok); animation: pulseDot 1.4s infinite; box-shadow: 0 0 8px var(--ok); }
+.dot.off { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+.dot.demo { background: var(--warn); }
+.icon-btn { background: var(--surface2); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--accent); border: 1px solid var(--border); }
+.icon-btn:hover { background: var(--surface3); transform: scale(1.05); }
+
+/* Banner / Emergency */
+#em-banner { display: none; background: var(--danger); position: absolute; top: 0; left: 0; width: 100%; height: 56px; z-index: 200; justify-content: space-between; align-items: center; padding: 0 2rem; font-family: var(--display); font-weight: 700; letter-spacing: 0.1em; color: white; animation: slideDownBanner 0.3s ease-out, bgEmPulse 1s infinite alternate; }
+#em-banner button { background: white; color: var(--danger); font-weight: 700; padding: 6px 16px; border-radius: 20px; }
+
+/* Grid */
+.layout { display: grid; grid-template-columns: 1fr 360px; gap: 1.5rem; padding: 1.5rem; max-width: 1800px; margin: 0 auto; padding-bottom: 100px; }
+.col-main { display: flex; flex-direction: column; gap: 1.5rem; }
+.col-side { display: flex; flex-direction: column; gap: 1.5rem; position: sticky; top: 80px; }
+
+/* Hero Card */
+.hero { min-height: 340px; border-top: 3px solid transparent; background: linear-gradient(var(--surface), var(--surface)) padding-box, linear-gradient(90deg, var(--accent), var(--accent2), var(--accent)) border-box; background-size: 200% auto; animation: shimmerBorder 3s linear infinite; }
+.hero-t { display: flex; justify-content: space-between; align-items: center; }
+.badge-live { background: rgba(255,45,45,0.15); color: var(--danger); padding: 4px 10px; border-radius: 4px; font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
+.badge-live::before { content:''; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); animation: pulseDot 1.4s infinite; }
+.cat-badge { font-weight: 700; padding: 4px 12px; border-radius: 4px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
+.cat-badge.comfort { background: rgba(255, 165, 0, 0.15); color: var(--warn); }
+.cat-badge.medical { background: rgba(0, 200, 255, 0.15); color: var(--accent); }
+.cat-badge.emergency { background: rgba(255, 45, 45, 0.2); color: var(--danger); animation: pulseDot 1s infinite alternate; }
+.hero-m { text-align: center; margin: 1rem 0; }
+#hero-emoji { font-size: 5.5rem; display: inline-block; text-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+.bounce-in { animation: bounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); }
+#hero-text { font-family: var(--display); font-weight: 900; font-size: clamp(2.5rem, 5vw, 4.2rem); margin-bottom: 0.5rem; line-height: 1.1; }
+.slide-up { animation: slideUpFade 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+#hero-room { display: inline-block; background: var(--surface2); padding: 4px 12px; border-radius: 20px; font-size: 0.9rem; color: var(--muted); margin-bottom: 1rem; }
+.hero-b { display: flex; justify-content: center; gap: 2rem; color: var(--muted); font-family: var(--mono); font-size: 0.9rem; }
+
+/* TFT Mirror */
+.tft-wrap { margin-top: 1.5rem; }
+.tft-divider { text-align: center; color: var(--muted); font-size: 0.8rem; margin-bottom: 1rem; letter-spacing: 2px; }
+.tft-box { background: #000; border: 4px solid #1a1a1a; border-radius: 16px; padding: 16px; position: relative; overflow: hidden; box-shadow: inset 0 0 40px #000, 0 0 0 2px #2a2a2a, 0 20px 60px rgba(0,0,0,0.8); min-height: 120px; display: flex; flex-direction: column; justify-content: flex-end; }
+.tft-glare { position: absolute; top:0; left:50%; right:0; height:150%; background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 50%); transform: skewX(-20deg); pointer-events: none; z-index: 2; }
+.tft-scanlines { position: absolute; inset: 0; background: repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,0.2) 3px); background-size: 100% 3px; animation: scanlines 0.2s linear infinite; pointer-events: none; z-index: 3; }
+.tft-lbl { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); font-family: var(--mono); font-size: 0.65rem; color: #444; letter-spacing: 0.2em; z-index: 10; }
+.tft-screen { font-family: var(--mono); color: #00FF41; text-shadow: 0 0 5px rgba(0,255,65,0.4); font-size: 0.95rem; line-height: 1.4; z-index: 5; position: relative; }
+.tft-line { opacity: 0.6; }
+.tft-line.latest { opacity: 1; font-weight: bold; color: #fff; text-shadow: 0 0 8px #fff, 0 0 15px #00FF41; animation: typewriter 0.5s steps(40) forwards; white-space: nowrap; overflow: hidden; }
+.tft-foot { position: absolute; bottom: 4px; right: 10px; font-family: var(--mono); font-size: 0.6rem; color: rgba(0,255,65,0.5); z-index: 5; }
+
+/* ECG Waveform */
+.ecg-bar { height: 80px; background: var(--surface); border-radius: 12px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 1rem; overflow: hidden; position: relative; }
+.ecg-lbl { font-size: 0.65rem; color: var(--muted); font-weight: 700; width: 60px; writing-mode: vertical-rl; text-align: center; }
+.ecg-canvas { flex: 1; height: 100%; }
+
+/* Stats Row */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; display: flex; flex-direction: column; gap: 0.5rem; position: relative; }
+.st-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+.st-icon.cyan { background: rgba(0, 200, 255, 0.1); color: var(--accent); box-shadow: 0 0 10px var(--glow); }
+.st-icon.red { background: rgba(255, 45, 45, 0.1); color: var(--danger); box-shadow: 0 0 10px rgba(255,45,45,0.2); }
+.st-icon.amber { background: rgba(255, 165, 0, 0.1); color: var(--warn); box-shadow: 0 0 10px rgba(255,165,0,0.2); }
+.st-icon.green { background: rgba(0, 230, 118, 0.1); color: var(--ok); animation: heartbeat 0.8s ease-in-out infinite; }
+.st-val { font-family: var(--mono); font-size: 2rem; font-weight: 700; }
+.st-val.red { color: var(--danger); }
+.st-lbl { font-weight: 500; font-size: 0.85rem; color: var(--text); }
+.st-sub { font-size: 0.75rem; color: var(--muted); }
+.sparkbox { width: 100%; height: 20px; display: flex; align-items: flex-end; gap: 2px; opacity: 0.6; }
+.sparkbar { flex: 1; background: var(--accent); border-radius: 1px; min-height: 2px; }
+.wifi-bars { display: flex; gap: 2px; height: 12px; align-items: flex-end; margin-top: 4px; }
+.w-bar { width: 4px; background: var(--muted); border-radius: 1px; }
+.w-bar.active { background: var(--ok); }
+.w-bar:nth-child(1) { height: 4px; } .w-bar:nth-child(2) { height: 7px; } .w-bar:nth-child(3) { height: 10px; } .w-bar:nth-child(4) { height: 13px; }
+
+/* Tabs */
+.tabs-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; min-height: 400px; }
+.tabs-hdr { display: flex; border-bottom: 1px solid var(--border); background: var(--surface2); padding: 0.5rem; gap: 0.5rem; overflow-x: auto; }
+.tab-btn { background: transparent; color: var(--muted); padding: 0.6rem 1.2rem; border-radius: 20px; font-weight: 700; transition: 0.3s; white-space: nowrap; }
+.tab-btn.active { background: var(--accent); color: #000; box-shadow: 0 0 15px var(--glow); }
+.tab-btn:hover:not(.active) { color: var(--text); background: var(--surface3); }
+.tab-content { padding: 1.5rem; display: none; animation: slideUpFade 0.3s ease; }
+.tab-content.active { display: block; }
+.tab-filters { display: flex; gap: 8px; margin-bottom: 1rem; }
+.filter-btn { padding: 4px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); font-size: 0.85rem; }
+.filter-btn.active { border-color: var(--accent); color: var(--accent); }
+
+/* History List */
+.hist-list { overflow-y: auto; max-height: 450px; display: flex; flex-direction: column; gap: 0.8rem; padding-right: 0.5rem; }
+.hist-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; border-left: 4px solid var(--border); display: grid; grid-template-columns: auto 1fr auto; gap: 1rem; align-items: center; animation: slideInLeft 0.35s ease; transition: transform 0.2s; }
+.hist-item:hover { transform: translateX(4px); }
+.hist-item.comfort { border-left-color: var(--warn); }
+.hist-item.medical { border-left-color: var(--accent); }
+.hist-item.emergency { border-left-color: var(--danger); background: var(--danger-dim); }
+.h-icon { font-size: 1.8rem; }
+.h-msg { font-weight: 700; font-size: 1.05rem; margin-bottom: 4px; }
+.h-sub { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); display:flex; gap:10px; }
+.h-ack { font-size: 0.85rem; margin-top: 6px; color: var(--accent); font-style: italic; }
+.h-ack.pending { color: var(--warn); }
+.h-r { text-align: right; }
+.h-time { font-family: var(--mono); font-size: 0.9rem; color: var(--text); }
+
+/* Sidebar */
+.pat-card { display: flex; align-items: center; gap: 1rem; }
+.pat-avatar { width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg, var(--surface2), var(--surface3)); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; font-size: 2rem; }
+.pat-name { font-family: var(--display); font-size: 1.2rem; font-weight: 700; margin-bottom:4px;}
+.pat-room { display: inline-block; background: var(--surface2); padding: 2px 8px; border-radius: 8px; font-size: 0.8rem; color: var(--muted); }
+.p-bar-wrap { margin-top: 1rem; }
+.p-lbl { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; }
+.p-bar { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+.p-fill { height: 100%; background: var(--accent); width: 10%; transition: width 0.5s ease; }
+
+.side-title { font-family: var(--display); font-size: 1.1rem; margin-bottom: 1rem; color: var(--text); }
+.ack-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.btn-ack { background: var(--surface2); border: 1px solid var(--border); padding: 0.8rem 0.5rem; border-radius: 8px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 0.85rem; font-weight: 700; color: var(--muted); }
+.btn-ack:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+.btn-ack:active { transform: translateY(0) scale(0.97); }
+
+.dev-table { width: 100%; font-size: 0.85rem; border-collapse: collapse; }
+.dev-table td { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+.dev-table tr:last-child td { border-bottom: none; }
+.dt-k { color: var(--muted); }
+.dt-v { text-align: right; font-family: var(--mono); font-weight: 700; }
+.dt-v .on { color: var(--ok); } .dt-v .off { color: var(--danger); } .dt-v .demo { color: var(--warn); }
+
+.code-wrap { margin-top: 1rem; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.code-toggle { width: 100%; background: var(--surface2); border: none; padding: 0.8rem; color: var(--text); font-weight: 700; display: flex; justify-content: space-between; }
+.code-toggle:hover { color: var(--accent); }
+.code-content { background: #000; padding: 1rem; font-family: var(--mono); font-size: 0.75rem; color: #A9B7C6; overflow-x: auto; display: none; }
+.code-content.open { display: block; }
+.kw { color: #CC7832; } .str { color: #6A8759; } .fn { color: #FFC66D; }
+
+/* Sim Bar */
+.sim-bar { position: fixed; bottom: 0; left: 0; width: 100%; height: 64px; background: rgba(4,8,15,0.96); backdrop-filter: blur(10px); border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 1.5rem; z-index: 100; gap: 1rem; overflow-x: auto; }
+.sim-title { font-size: 0.68rem; color: var(--muted); font-weight: 700; letter-spacing: 1px; white-space: nowrap; }
+.sim-btn { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 0.85rem; font-weight: 700; white-space: nowrap; }
+.sim-btn:hover { background: var(--surface3); transform: translateY(-1px); }
+.sim-btn:active { transform: scale(0.96); }
+.sim-btn.cmf { border-color: var(--warn); }
+.sim-btn.med { border-color: var(--accent); }
+.sim-btn.emg { border-color: var(--danger); color: var(--danger); animation: pulseDot 1.5s infinite alternate; font-size: 0.9rem; }
+.sim-r { margin-left: auto; display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.rec-badge { background: rgba(255,45,45,0.15); color: var(--danger); padding: 2px 6px; border-radius: 4px; font-weight: 700; animation: pulseDot 1s infinite; }
+
+/* Toast */
+.toast-container { position: fixed; bottom: 80px; right: 24px; z-index: 200; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.toast { background: var(--surface2); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 12px; padding: 14px 18px; min-width: 260px; pointer-events: auto; animation: slideInLeft 0.3s forwards, toastOut 0.4s forwards 3.6s; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden; position: relative; }
+.toast.info { border-left-color: var(--accent); } .toast.warn { border-left-color: var(--warn); } .toast.err { border-left-color: var(--danger); } .toast.succ { border-left-color: var(--ok); }
+.t-title { font-weight: 700; margin-bottom: 4px; font-size: 0.95rem; }
+.t-body { font-size: 0.85rem; color: var(--muted); }
+.t-prog { position: absolute; bottom: 0; left: 0; height: 3px; background: var(--accent); animation: progress 4s linear forwards; }
+.toast.warn .t-prog { background: var(--warn); } .toast.err .t-prog { background: var(--danger); } .toast.succ .t-prog { background: var(--ok); }
+
+@keyframes eyeBlink { 0%,95%,100% { transform: scaleY(1); } 97.5% { transform: scaleY(0.1); } }
+@keyframes shimmerBorder { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@keyframes pulseDot { 0% { opacity: 0.6; transform: scale(0.9); } 100% { opacity: 1; transform: scale(1.1); box-shadow: 0 0 15px currentColor; } }
+@keyframes bounceIn { 0% { transform: scale(0.3); opacity: 0; } 50% { transform: scale(1.12); opacity: 1; } 75% { transform: scale(0.95); } 100% { transform: scale(1); opacity: 1; } }
+@keyframes slideUpFade { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideInLeft { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes slideDownBanner { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+@keyframes bgEmPulse { from { background-color: #CC0000; } to { background-color: #FF0000; } }
+@keyframes flashRed { 0%,100% { box-shadow:none; } 50% { box-shadow: 0 0 40px rgba(255,45,45,0.6); } }
+@keyframes scanlines { from { background-position: 0 0; } to { background-position: 0 3px; } }
+@keyframes heartbeat { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+@keyframes toastOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(20px); } }
+@keyframes progress { from { width: 100%; } to { width: 0%; } }
+@keyframes typewriter { from { width: 0; } to { width: 100%; } }
+
+@media (max-width: 1200px) { .layout { grid-template-columns: 1fr 300px; } }
+@media (max-width: 768px) { .layout { grid-template-columns: 1fr; } .col-side { position: relative; top: 0; } .hdr-title h1 { font-size: 1.1rem; } .hdr-m { display: none; } }
+@media (max-width: 480px) { .stats { grid-template-columns: 1fr 1fr; } #hero-text { font-size: 2.5rem; } }
+
+    </style>
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+    <div id="app-root">
+        <div class="vignette-red" id="vignette"></div>
+        <div id="em-banner">
+            <div>⚠️ EMERGENCY — PATIENT NEEDS IMMEDIATE ATTENTION ⚠️</div>
+            <button id="btn-ack-banner">✅ Acknowledge</button>
+        </div>
+
+        <header>
+            <div class="hdr-l">
+                <div class="logo-eye">👁️</div>
+                <div class="hdr-title">
+                    <h1>Blink<span>Speak</span></h1>
+                    <p>Assistive Communication Monitor</p>
+                </div>
+            </div>
+            <div class="hdr-m">
+                <div class="clock" id="hdr-clock">00:00:00</div>
+                <div class="date" id="hdr-date">Loading...</div>
+            </div>
+            <div class="hdr-r">
+                <div style="font-size:0.8rem; font-weight:700; color:var(--muted);" id="hdr-last">Last message: --</div>
+                <div class="cnt-badge">
+                    <div class="dot demo" id="conn-dot"></div>
+                    <span id="conn-text" style="color:var(--text)">Connecting...</span>
+                </div>
+                <button class="icon-btn" id="btn-theme" title="Toggle Theme">🌙</button>
+                <button class="icon-btn" id="btn-sound" title="Toggle Sound">🔊</button>
+                <button class="icon-btn" style="position:relative;" id="btn-notif" title="Notifications">
+                    🔔 <span id="bell-badge" style="position:absolute;top:-2px;right:-2px;background:var(--danger);width:10px;height:10px;border-radius:50%;display:none;"></span>
+                </button>
+            </div>
+        </header>
+
+        <main class="layout">
+            <div class="col-main">
+                <!-- Hero -->
+                <div class="card hero stagger-init" id="hero-card">
+                    <div class="hero-t">
+                        <div class="badge-live">🔴 LIVE <span>Real-time Feed</span></div>
+                        <div class="cat-badge comfort" id="hero-cat">AWAITING INPUT</div>
+                    </div>
+                    <div class="hero-m">
+                        <div id="hero-emoji">⏳</div>
+                        <div id="hero-text">Waiting for device...</div>
+                        <div id="hero-room">📍 Room 204</div>
+                    </div>
+                    <div class="hero-b">
+                        <div>🕐 <span id="hero-time">--:--:--</span></div>
+                        <div>📅 <span id="hero-date">--/--/----</span></div>
+                        <div>👁️ <span id="hero-blinks">-</span> blinks</div>
+                    </div>
+                    
+                    <div class="tft-wrap">
+                        <div class="tft-divider">── TFT DISPLAY MIRROR ──</div>
+                        <div class="tft-box">
+                            <div class="tft-glare"></div>
+                            <div class="tft-scanlines"></div>
+                            <div class="tft-lbl">[ TFT 2.8" LCD — LIVE MIRROR ]</div>
+                            <div class="tft-screen" id="tft-screen">
+                                <div class="tft-line">> BlinkSpeak v1.0</div>
+                                <div class="tft-line">> Device: pi-ward-01</div>
+                                <div class="tft-line">> Awaiting link...</div>
+                            </div>
+                            <div class="tft-foot">[■ REC] [WiFi ▂▄▆] [BATT ██░]</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ECG Waveform -->
+                <div class="ecg-bar stagger-init" style="animation-delay: 0.1s;">
+                    <div class="ecg-lbl">SIGNAL</div>
+                    <canvas class="ecg-canvas" id="ecg-canvas"></canvas>
+                    <div style="font-family:var(--mono); color:var(--accent); font-weight:700; font-size:1.2rem; margin-left:1rem;" id="ecg-bpm">0 <span style="font-size:0.6rem;color:var(--muted)">msg/h</span></div>
+                </div>
+
+                <!-- Stats Row -->
+                <div class="stats">
+                    <div class="stat-card stagger-init" style="animation-delay: 0.2s;">
+                        <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                            <div class="st-icon cyan">📨</div>
+                            <div>
+                                <div class="st-lbl">Messages This Session</div>
+                                <div class="st-sub">Live count</div>
+                            </div>
+                        </div>
+                        <div class="st-val" id="st-msgs">0</div>
+                        <div class="sparkbox" id="spark-msgs"></div>
+                    </div>
+                    <div class="stat-card stagger-init" style="animation-delay: 0.3s;">
+                        <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                            <div class="st-icon red">🚨</div>
+                            <div>
+                                <div class="st-lbl">Emergencies Today</div>
+                                <div class="st-sub" id="st-emg-time">None yet</div>
+                            </div>
+                        </div>
+                        <div class="st-val red" id="st-emg">0</div>
+                        <div class="sparkbox" id="spark-emg"></div>
+                    </div>
+                    <div class="stat-card stagger-init" style="animation-delay: 0.4s;">
+                        <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                            <div class="st-icon amber">⚡</div>
+                            <div>
+                                <div class="st-lbl">Avg. Response Time</div>
+                                <div class="st-sub">Based on session history</div>
+                            </div>
+                        </div>
+                        <div class="st-val" id="st-resp">~2 min</div>
+                    </div>
+                    <div class="stat-card stagger-init" style="animation-delay: 0.5s;">
+                        <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                            <div class="st-icon green">💓</div>
+                            <div>
+                                <div class="st-lbl">Pi Device Health</div>
+                                <div class="st-sub" id="st-uptime">0h 0m uptime</div>
+                            </div>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                            <div class="st-val" style="font-size:1.4rem;" id="st-temp">--°C</div>
+                            <div class="wifi-bars" id="st-wifi">
+                                <div class="w-bar active"></div><div class="w-bar active"></div><div class="w-bar"></div><div class="w-bar"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabs -->
+                <div class="tabs-wrap stagger-init" style="animation-delay: 0.6s;">
+                    <div class="tabs-hdr">
+                        <button class="tab-btn active" data-tab="tab-hist">Message History</button>
+                        <button class="tab-btn" data-tab="tab-ana">Analytics</button>
+                        <button class="tab-btn" data-tab="tab-sch">Schedule & Notes</button>
+                        <button class="tab-btn" data-tab="tab-set">Settings & Config</button>
+                    </div>
+                    
+                    <div class="tab-content active" id="tab-hist">
+                        <div class="tab-filters">
+                            <button class="filter-btn active" data-filter="all">All</button>
+                            <button class="filter-btn" data-filter="comfort">Comfort</button>
+                            <button class="filter-btn" data-filter="medical">Medical</button>
+                            <button class="filter-btn" data-filter="emergency">Emergency</button>
+                        </div>
+                        <div class="hist-list" id="hist-list">
+                            <div style="text-align:center; padding:3rem; color:var(--muted);">No messages received yet.</div>
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="tab-ana">
+                        <h2 style="margin-bottom:1.5rem;">Session Analytics</h2>
+                        <div style="height:200px; display:flex; align-items:flex-end; gap:8px; border-bottom:1px solid var(--border); padding-bottom:10px;" id="chart-bars">
+                            <!-- CSS pure bar chart -->
+                            <div style="flex:1; background:var(--surface2); border-radius:4px 4px 0 0; position:relative;"></div>
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="tab-sch">
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:2rem;">
+                            <div>
+                                <h3 style="margin-bottom:1rem; color:var(--text);">💊 Medication Reminders</h3>
+                                <div style="display:flex; gap:10px; margin-bottom:1rem;">
+                                    <input type="time" id="med-time" style="background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:8px; border-radius:8px;">
+                                    <input type="text" id="med-name" placeholder="Medicine name..." style="flex:1; background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:8px; border-radius:8px;">
+                                    <button class="sim-btn med" id="btn-add-med">Add</button>
+                                </div>
+                                <div id="med-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+                            </div>
+                            <div>
+                                <h3 style="margin-bottom:1rem; color:var(--text);">📝 Shift Notes</h3>
+                                <textarea id="note-text" style="width:100%; height:80px; background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px; font-family:var(--font); resize:none;" placeholder="Enter notes here..."></textarea>
+                                <button class="sim-btn cmf" id="btn-add-note" style="margin-top:10px;">Save Note</button>
+                                <div id="note-list" style="display:flex; flex-direction:column; gap:8px; margin-top:1rem;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tab-content" id="tab-set">
+                        <h3 style="margin-bottom:1rem; color:var(--text);">⚙️ Firebase Configuration</h3>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:1rem;">
+                            <input type="text" id="fb-apiKey" placeholder="apiKey (REPLACE_WITH_YOUR_API_KEY)" style="background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px;">
+                            <input type="text" id="fb-authDomain" placeholder="authDomain" style="background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px;">
+                            <input type="text" id="fb-databaseURL" placeholder="databaseURL" style="background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px;">
+                            <input type="text" id="fb-projectId" placeholder="projectId" style="background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px;">
+                        </div>
+                        <button class="sim-btn med" id="btn-save-fb">Save & Connect</button>
+                        <p style="margin-top:1rem; font-size:0.85rem; color:var(--muted);">Leave blank to run in Local Demo Mode.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-side stagger-init" style="animation-delay: 0.7s;">
+                <div class="card">
+                    <div class="pat-card">
+                        <div class="pat-avatar">👤</div>
+                        <div>
+                            <div class="pat-name">Patient Monitor</div>
+                            <div class="pat-room">Ward 204</div>
+                            <div style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--ok); margin-top:4px; font-weight:700;">
+                                <div class="dot on" style="width:6px; height:6px;"></div> BlinkSpeak Active
+                            </div>
+                        </div>
+                    </div>
+                    <div class="p-bar-wrap">
+                        <div class="p-lbl"><span>Communication Activity</span> <span id="pat-blinks">0 blinks/hr</span></div>
+                        <div class="p-bar"><div class="p-fill" id="pat-fill"></div></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="side-title">⚡ Respond Now</h3>
+                    <div class="ack-grid">
+                        <button class="btn-ack action-btn" data-r="Acknowledged" style="color:var(--ok); border-color:var(--ok);">✅ Acknowledged</button>
+                        <button class="btn-ack action-btn" data-r="On My Way">🏃 On My Way</button>
+                        <button class="btn-ack action-btn" data-r="Call Doctor">🩺 Call Doctor</button>
+                        <button class="btn-ack action-btn" data-r="Need Met">✔️ Need Met</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="side-title">🔌 Device Monitor</h3>
+                    <table class="dev-table">
+                        <tr><td class="dt-k">Raspberry Pi</td><td class="dt-v on" id="dt-pi">Online</td></tr>
+                        <tr><td class="dt-k">TFT Screen</td><td class="dt-v on">Active</td></tr>
+                        <tr><td class="dt-k">Firebase DB</td><td class="dt-v demo" id="dt-fb">Demo Mode</td></tr>
+                        <tr><td class="dt-k">Last Signal</td><td class="dt-v" id="dt-sig">--</td></tr>
+                        <tr><td class="dt-k">Device ID</td><td class="dt-v">pi-ward-01</td></tr>
+                        <tr><td class="dt-k">IP Address</td><td class="dt-v" id="dt-ip">127.0.0.1</td></tr>
+                        <tr><td class="dt-k">WiFi Signal</td><td class="dt-v" id="dt-wifi">--</td></tr>
+                        <tr><td class="dt-k">CPU Temp</td><td class="dt-v" id="dt-temp2">--</td></tr>
+                        <tr><td class="dt-k">Blink Rate</td><td class="dt-v" id="dt-rate">--</td></tr>
+                    </table>
+                </div>
+
+                <div class="card">
+                    <button class="code-toggle" id="btn-code" onclick="document.getElementById('code-box').classList.toggle('open')">
+                        Show Pi Integration Code ▼
+                    </button>
+                    <div class="code-wrap">
+                        <div class="code-content" id="code-box">
+<span class="kw">import</span> firebase_admin
+<span class="kw">from</span> firebase_admin <span class="kw">import</span> credentials, db
+<span class="kw">import</span> time
+
+cred = credentials.Certificate(<span class="str">"serviceAccountKey.json"</span>)
+firebase_admin.initialize_app(cred, {<span class="str">"databaseURL"</span>: <span class="str">"..."</span>})
+
+<span class="kw">def</span> <span class="fn">send_message</span>(msg):
+    db.reference(<span class="str">"/blinkspeak/messages"</span>).push({
+        <span class="str">"message"</span>: msg,
+        <span class="str">"timestamp"</span>: int(time.time() * 1000)
+    })
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Sim Bar -->
+        <div class="sim-bar">
+            <div class="sim-title">🔬 SIMULATE PI:</div>
+            <button class="sim-btn cmf" onclick="triggerSim('Water Needed', 'comfort', '💧')">💧 Water</button>
+            <button class="sim-btn cmf" onclick="triggerSim('Food Needed', 'comfort', '🍽️')">🍽️ Food</button>
+            <button class="sim-btn med" onclick="triggerSim('Medicine', 'medical', '💊')">💊 Medicine</button>
+            <button class="sim-btn cmf" onclick="triggerSim('Adjust Bed', 'comfort', '🛏️')">🛏️ Bed</button>
+            <button class="sim-btn med" onclick="triggerSim('Call Doctor', 'medical', '🩺')">🩺 Doctor</button>
+            <button class="sim-btn emg" onclick="triggerSim('EMERGENCY', 'emergency', '🆘')">🆘 Emergency</button>
+            <div class="sim-r">
+                <div class="rec-badge" id="sim-rec" style="display:none;">🔴 REC</div>
+                <span id="sim-count">0 messages</span>
+            </div>
+        </div>
+
+        <div class="toast-container" id="toasts"></div>
+    </div>
+
+    <script type="module" id="app-script">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+        import { getDatabase, ref, onChildAdded, onValue, push, set } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
+
+        // Global State & Elements
+        let appConfig = {
+            fb: JSON.parse(localStorage.getItem('bs_fb')) || { apiKey:"", authDomain:"", databaseURL:"", projectId:"", storageBucket:"", messagingSenderId:"", appId:"" },
+            sound: localStorage.getItem('bs_snd') !== 'false',
+            theme: localStorage.getItem('bs_th') || 'dark',
+            notes: JSON.parse(localStorage.getItem('bs_notes')) || [],
+            meds: JSON.parse(localStorage.getItem('bs_meds')) || []
+        };
+        
+        let db = null; let isConnected = false; let isEmg = false;
+        let cStats = { total:0, emg:0, start:Date.now() };
+        let history = []; let tftBuf = ["> BlinkSpeak v1.0", "> Device: pi-ward-01", "> Awaiting link..."];
+        
+        // Theme
+        const applyTheme = () => { document.body.className = appConfig.theme === 'light' ? 'light-mode' : ''; document.getElementById('btn-theme').textContent = appConfig.theme==='light'?'☀️':'🌙'; };
+        document.getElementById('btn-theme').onclick = () => { appConfig.theme = appConfig.theme==='light'?'dark':'light'; localStorage.setItem('bs_th', appConfig.theme); applyTheme(); drawParticles(); };
+        applyTheme();
+
+        // Canvas Particle Network
+        const cvs = document.getElementById('bg-canvas'); const ctx = cvs.getContext('2d');
+        let pts = [];
+        function resizeCvs() { cvs.width = window.innerWidth; cvs.height = window.innerHeight; }
+        window.onresize = () => { resizeCvs(); drawParticles(); };
+        resizeCvs();
+        for(let i=0; i<40; i++) pts.push({x:Math.random()*cvs.width, y:Math.random()*cvs.height, vx:(Math.random()-0.5)*0.5, vy:(Math.random()-0.5)*0.5});
+        function drawParticles() {
+            ctx.clearRect(0,0,cvs.width,cvs.height);
+            ctx.fillStyle = appConfig.theme === 'light' ? 'rgba(0,100,200,0.2)' : 'rgba(0,200,255,0.15)';
+            ctx.strokeStyle = appConfig.theme === 'light' ? 'rgba(0,100,200,0.05)' : 'rgba(0,200,255,0.03)';
+            pts.forEach(p => {
+                p.x += p.vx; p.y += p.vy;
+                if(p.x<0||p.x>cvs.width) p.vx*=-1; if(p.y<0||p.y>cvs.height) p.vy*=-1;
+                ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, Math.PI*2); ctx.fill();
+                pts.forEach(p2 => {
+                    let d = Math.hypot(p.x-p2.x, p.y-p2.y);
+                    if(d < 150) { ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p2.x,p2.y); ctx.stroke(); }
+                });
+            });
+            requestAnimationFrame(drawParticles);
+        }
+        drawParticles();
+
+        // ECG Canvas Logics
+        const ecgCvs = document.getElementById('ecg-canvas'); const ecgCtx = ecgCvs.getContext('2d');
+        ecgCvs.width = 400; ecgCvs.height = 80;
+        let ecgOffset = 0; let spikeQueue = [];
+        setInterval(() => {
+            ecgCtx.clearRect(0,0,400,80);
+            ecgCtx.beginPath(); ecgCtx.strokeStyle = isEmg ? '#FF2D2D' : '#00C8FF'; ecgCtx.lineWidth = 2;
+            for(let x=0; x<400; x++) {
+                let y = 40 + Math.sin((x+ecgOffset)*0.05)*4; // Base sine wave
+                // Check spikes
+                spikeQueue.forEach(s => {
+                    let dx = x - (400 - (Date.now() - s.time)*0.2); // Moves left over time
+                    if(dx > 0 && dx < 40) {
+                        if(s.type==='emg') { y -= Math.sin(dx*0.15)*30; y -= Math.cos(dx*0.3)*20; }
+                        else { y -= Math.sin(dx*0.2)*20; }
+                    }
+                });
+                if(x===0) ecgCtx.moveTo(x,y); else ecgCtx.lineTo(x,y);
+            }
+            ecgCtx.stroke();
+            ecgOffset -= 1;
+            spikeQueue = spikeQueue.filter(s => (Date.now() - s.time) < 3000);
+        }, 1000/30);
+
+        // Audio System
+        let actx = null;
+        const initAudio = () => { if(!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if(actx.state==='suspended') actx.resume(); };
+        document.body.addEventListener('click', initAudio, {once:true});
+        const tone = (f, t, d, v, s) => {
+            if(!actx || !appConfig.sound) return;
+            const o = actx.createOscillator(); const g = actx.createGain();
+            o.type = t; o.frequency.value = f;
+            g.gain.setValueAtTime(0, actx.currentTime + s);
+            g.gain.linearRampToValueAtTime(v, actx.currentTime + s + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + s + d);
+            o.connect(g); g.connect(actx.destination);
+            o.start(actx.currentTime + s); o.stop(actx.currentTime + s + d);
+        };
+        const sndNorm = () => { tone(523, 'sine', 0.2, 0.2, 0); tone(659, 'sine', 0.2, 0.2, 0.1); tone(784, 'sine', 0.3, 0.2, 0.2); };
+        const sndEmg = () => { for(let i=0; i<4; i++){ tone(880, 'square', 0.2, 0.15, i*0.4); tone(660, 'square', 0.2, 0.15, i*0.4+0.2); } };
+        const sndAck = () => tone(440, 'sine', 0.3, 0.1, 0);
+
+        // Sound Toggle
+        const btnSnd = document.getElementById('btn-sound');
+        btnSnd.textContent = appConfig.sound ? '🔊' : '🔇';
+        btnSnd.onclick = () => { appConfig.sound = !appConfig.sound; localStorage.setItem('bs_snd', appConfig.sound); btnSnd.textContent = appConfig.sound ? '🔊' : '🔇'; if(appConfig.sound) sndAck(); };
+
+        // Utilities
+        const $$ = id => document.getElementById(id);
+        const formatTime = ms => new Date(ms).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+        
+        // Toast System
+        function showToast(title, body, type='info') {
+            const t = document.createElement('div'); t.className = `toast ${type}`;
+            t.innerHTML = `<div class="t-title">${title}</div><div class="t-body">${body}</div><div class="t-prog"></div>`;
+            $$('toasts').appendChild(t);
+            setTimeout(() => t.remove(), 4000);
+        }
+
+        // Ticker
+        setInterval(() => {
+            $$('hdr-clock').textContent = formatTime(Date.now());
+            if(!$$('hdr-date').dataset.set) { $$('hdr-date').textContent = new Date().toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'long', day:'numeric'}); $$('hdr-date').dataset.set=true; }
+            if(cStats.last) {
+                let sec = Math.floor((Date.now()-cStats.last)/1000);
+                $$('hdr-last').textContent = `Last message: ${sec}s ago`;
+            }
+        }, 1000);
+
+        // Message Handling
+        function onNewMsg(d) {
+            cStats.total++; cStats.last = d.timestamp;
+            $$('st-msgs').textContent = cStats.total;
+            $$('ecg-bpm').innerHTML = `${Math.round((cStats.total / ((Date.now() - cStats.start)/3600000)) || 0)} <span style="font-size:0.6rem;color:var(--muted)">msg/h</span>`;
+            
+            // Hero
+            $$('hero-emoji').textContent = d.icon;
+            $$('hero-text').textContent = d.message;
+            $$('hero-cat').textContent = d.category;
+            $$('hero-cat').className = `cat-badge ${d.category}`;
+            $$('hero-time').textContent = formatTime(d.timestamp);
+            $$('hero-date').textContent = new Date(d.timestamp).toLocaleDateString();
+            $$('hero-blinks').textContent = d.blinkCount || 0;
+            $$('pat-blinks').textContent = `${d.blinkCount||0} last msg`;
+
+            // Anims
+            const he = $$('hero-emoji'); const ht = $$('hero-text');
+            he.classList.remove('bounce-in'); ht.classList.remove('slide-up');
+            void he.offsetWidth; 
+            he.classList.add('bounce-in'); ht.classList.add('slide-up');
+
+            // TFT Mirror
+            tftBuf.push(`>[${formatTime(d.timestamp)}] ${d.message}`);
+            if(tftBuf.length > 3) tftBuf.shift();
+            $$('tft-screen').innerHTML = tftBuf.map((l,i) => `<div class="tft-line ${i===2?'latest':''}">${l}</div>`).join('');
+
+            // ECG & Alert logic
+            spikeQueue.push({time: d.timestamp, type: d.category});
+            if(d.category === 'emergency') {
+                cStats.emg++; $$('st-emg').textContent = cStats.emg;
+                triggerEmg();
+            } else {
+                $$('hero-card').style.animation = 'none'; void $$('hero-card').offsetWidth;
+                $$('hero-card').style.animation = 'shimmerBorder 3s linear infinite, flashRed 0.4s';
+                sndNorm();
+            }
+
+            // History Log
+            history.unshift(d);
+            if(history.length > 100) history.pop();
+            renderHistory('all');
+            
+            // Sparkbars
+            renderCharts();
+        }
+
+        function triggerEmg() {
+            isEmg = true;
+            $$('em-banner').style.display = 'flex';
+            $$('vignette').style.display = 'block';
+            document.title = "🚨 EMERGENCY — BlinkSpeak";
+            $$('hero-card').classList.add('glow-emergency');
+            sndEmg();
+            const bell = $$('bell-badge'); bell.style.display='block'; bell.textContent = (parseInt(bell.textContent||0)+1);
+        }
+
+        function ackEmg() {
+            if(!isEmg) return;
+            isEmg = false;
+            $$('em-banner').style.display = 'none';
+            $$('vignette').style.display = 'none';
+            document.title = "BlinkSpeak — Caretaker Monitor | Room 204";
+            $$('hero-card').classList.remove('glow-emergency');
+            $$('bell-badge').style.display='none'; $$('bell-badge').textContent=0;
+            sndAck(); showToast('Emergency Acknowledged', 'All systems clear.', 'succ');
+        }
+
+        $$('btn-ack-banner').onclick = ackEmg;
+        document.querySelectorAll('.btn-ack').forEach(b => b.onclick = (e) => {
+            ackEmg(); sndAck(); showToast('Response Logged', e.target.dataset.r, 'info');
+            if(isConnected && db) {
+                push(ref(db, '/blinkspeak/caretaker/responses'), { response: e.target.dataset.r, timestamp: Date.now() });
+            }
+        });
+
+        // History Render
+        let currFilter = 'all';
+        function renderHistory(filter) {
+            currFilter = filter;
+            const list = $$('hist-list');
+            list.innerHTML = '';
+            const filtered = history.filter(h => filter === 'all' || h.category === filter);
+            if(filtered.length === 0) { list.innerHTML = `<div style="text-align:center; padding:3rem; color:var(--muted);">No messages.</div>`; return; }
+            filtered.forEach(h => {
+                list.innerHTML += `
+                <div class="hist-item ${h.category}">
+                    <div class="h-icon">${h.icon}</div>
+                    <div>
+                        <div class="h-msg">${h.message}</div>
+                        <div class="h-sub"><span>📍 Room 204</span> <span>📱 ${h.deviceId || 'pi-ward-01'}</span></div>
+                        <div class="h-ack pending">⏳ Awaiting response</div>
+                    </div>
+                    <div class="h-r">
+                        <div class="cat-badge ${h.category}" style="display:inline-block; margin-bottom:8px;">${h.category}</div>
+                        <div class="h-time">${formatTime(h.timestamp)}</div>
+                    </div>
+                </div>`;
+            });
+        }
+        document.querySelectorAll('.filter-btn').forEach(b => b.onclick = (e) => {
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            e.target.classList.add('active');
+            renderHistory(e.target.dataset.filter);
+        });
+
+        // Charts
+        function renderCharts() {
+            // Mini sparklines
+            const makeBars = (arr, max) => arr.map(v => `<div class="sparkbar" style="height:${Math.max(2, (v/max)*100)}%"></div>`).join('');
+            const mc = history.slice(0,15).map(h=>h.blinkCount||1);
+            if(mc.length) $$('spark-msgs').innerHTML = makeBars(mc, 5);
+            
+            // CSS Bar chart Analytics
+            let hours = new Array(8).fill(0);
+            let now = Date.now();
+            history.forEach(h => {
+                let diffH = Math.floor((now - h.timestamp) / 3600000);
+                if(diffH >= 0 && diffH < 8) hours[7-diffH]++;
+            });
+            let maxH = Math.max(1, ...hours);
+            $$('chart-bars').innerHTML = hours.map(v => `<div style="flex:1; background:var(--accent); border-radius:4px 4px 0 0; min-height:2px; height:${(v/maxH)*100}%; position:relative; transition:height 0.5s;"><div style="position:absolute; bottom:-25px; left:50%; transform:translateX(-50%); color:var(--muted); font-size:0.7rem; font-family:var(--mono);">${v}</div></div>`).join('');
+        }
+
+        // Tabs Logic
+        document.querySelectorAll('.tab-btn').forEach(b => b.onclick = (e) => {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            e.target.classList.add('active');
+            $$(e.target.dataset.tab).classList.add('active');
+            if(e.target.dataset.tab==='tab-ana') renderCharts();
+        });
+
+        // Notes & Schedule
+        const renderNotes = () => {
+            $$('note-list').innerHTML = appConfig.notes.map((n,i) => `<div style="background:var(--bg); border:1px solid var(--border); padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:flex-start;"><div style="font-size:0.9rem;">${n.t} <br><span style="font-size:0.75rem; color:var(--muted); font-family:var(--mono);">${formatTime(n.ts)}</span></div><button style="color:var(--danger); background:transparent;" onclick="delNote(${i})">✖</button></div>`).join('');
+        }
+        window.delNote = i => { appConfig.notes.splice(i,1); localStorage.setItem('bs_notes', JSON.stringify(appConfig.notes)); renderNotes(); };
+        $$('btn-add-note').onclick = () => {
+            let v = $$('note-text').value.trim(); if(!v) return;
+            appConfig.notes.unshift({t:v, ts:Date.now()}); localStorage.setItem('bs_notes', JSON.stringify(appConfig.notes)); $$('note-text').value=''; renderNotes();
+        }; renderNotes();
+
+        // Firebase Connect & Config
+        $$('fb-apiKey').value = appConfig.fb.apiKey; $$('fb-authDomain').value = appConfig.fb.authDomain; $$('fb-databaseURL').value = appConfig.fb.databaseURL; $$('fb-projectId').value = appConfig.fb.projectId;
+        $$('btn-save-fb').onclick = () => {
+            appConfig.fb = { apiKey:$$('fb-apiKey').value, authDomain:$$('fb-authDomain').value, databaseURL:$$('fb-databaseURL').value, projectId:$$('fb-projectId').value, storageBucket:"", messagingSenderId:"", appId:"" };
+            localStorage.setItem('bs_fb', JSON.stringify(appConfig.fb));
+            location.reload();
+        }
+
+        async function connectFB() {
+            if(!appConfig.fb.apiKey || appConfig.fb.apiKey.includes('REPLACE')) {
+                $$('conn-text').textContent = "Demo Mode"; $$('conn-dot').className = "dot demo";
+                $$('dt-fb').textContent = "Demo Mode (Local)"; $$('dt-fb').className = "dt-v demo";
+                showToast('Welcome to Demo Mode', 'Firebase not connected. Use the Simulate Bar below test functionality.', 'warn');
+                return;
+            }
+            try {
+                const app = initializeApp(appConfig.fb); const auth = getAuth(app);
+                await signInAnonymously(auth);
+                db = getDatabase(app); isConnected = true;
+                $$('conn-text').textContent = "Device Online"; $$('conn-dot').className = "dot on";
+                $$('dt-fb').textContent = "Connected"; $$('dt-fb').className = "dt-v on";
+                $$('sim-rec').style.display = 'block';
+                showToast('Firebase Linked', 'Successfully connected to realtime database.', 'succ');
+
+                onChildAdded(ref(db, '/blinkspeak/messages'), snap => { if(snap.val()) onNewMsg(snap.val()); });
+                onValue(ref(db, '/blinkspeak/device'), snap => {
+                    let d = snap.val(); if(!d) return;
+                    $$('dt-sig').textContent = "Just now";
+                    if(d.ipAddress) $$('dt-ip').textContent = d.ipAddress;
+                    if(d.wifiSignal) {
+                        $$('dt-wifi').textContent = d.wifiSignal;
+                        let sig = parseInt(d.wifiSignal);
+                        let wbars = $$('st-wifi').children;
+                        wbars[3].className = (sig > -60) ? 'w-bar active' : 'w-bar';
+                        wbars[2].className = (sig > -70) ? 'w-bar active' : 'w-bar';
+                        wbars[1].className = (sig > -80) ? 'w-bar active' : 'w-bar';
+                    }
+                    if(d.cpuTemp) $$('dt-temp2').textContent = d.cpuTemp;
+                    if(d.uptime) $$('st-uptime').textContent = `${d.uptime} uptime`;
+                });
+            } catch(e) {
+                console.error(e);
+                $$('conn-text').textContent = "Offline / Error"; $$('conn-dot').className = "dot off";
+                $$('dt-fb').textContent = "Auth Error"; $$('dt-fb').className = "dt-v off";
+                showToast('Connection Error', 'Failed to authenticate with Firebase.', 'err');
+            }
+        }
+        connectFB();
+
+        // Simulate Action
+        window.triggerSim = (msg, cat, icon) => {
+            initAudio();
+            let pld = { message: msg, category: cat, icon: icon, timestamp: Date.now(), deviceId: "pi-ward-01", blinkCount: Math.floor(Math.random()*5)+1 };
+            if(isConnected && db) { push(ref(db, '/blinkspeak/messages'), pld); set(ref(db, '/blinkspeak/device'), { status:"online", lastSeen:Date.now(), ipAddress:"192.168.1.sim", wifiSignal:"-52 dBm", cpuTemp:"45°C", uptime:"Testing" }); }
+            else { window.onNewMsg(pld); }
+            $$('sim-count').textContent = `${cStats.total} messages sent`;
+        };
+
+    </script>
+</body>
+</html>
